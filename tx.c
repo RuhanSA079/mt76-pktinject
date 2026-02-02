@@ -343,47 +343,19 @@ mt76_tx(struct mt76_phy *phy, struct ieee80211_sta *sta,
 	if (WARN_ON(skb_get_queue_mapping(skb) >= MT_TXQ_PSD))
 		skb_set_queue_mapping(skb, MT_TXQ_BE);
 
-	if (!wcid){
-		pr_warn("%s: no wcid for skb, dropping\n", __func__);
-    	ieee80211_free_txskb(phy->hw, skb);
-    	return;
-	}else{
-		pr_warn("wicd valid.\n");
-	}
-
-	if (!phy){
-		pr_warn("phy invalid!\n");
-		return;
-	}else{
-		pr_warn("phy valid\n");
-	}
-	
 	if (wcid && !(wcid->tx_info & MT_WCID_TX_INFO_SET))
 		ieee80211_get_tx_rates(info->control.vif, sta, skb, info->control.rates, 1);
 	
 	info->hw_queue |= FIELD_PREP(MT_TX_HW_QUEUE_PHY, phy->band_idx);
 
-	if ((info->flags & IEEE80211_TX_CTL_TX_OFFCHAN) || ((info->control.flags & IEEE80211_TX_CTRL_DONT_USE_RATE_MASK) && ieee80211_is_probe_req(hdr->frame_control))){
-		pr_warn("OFF_CHAN TX\n");
+	if ((info->flags & IEEE80211_TX_CTL_TX_OFFCHAN) || ((info->control.flags & IEEE80211_TX_CTRL_DONT_USE_RATE_MASK) && ieee80211_is_probe_req(hdr->frame_control)))
 		head = &wcid->tx_offchannel;
-	} else {
-		pr_warn("TX_PENDING\n");
+	else
 		head = &wcid->tx_pending;
-	}
 
-	if (!head){
-		pr_warn("head invalid!\n");
-		ieee80211_free_txskb(phy->hw, skb);
-		return;
-	}else{
-		pr_warn("head valid\n");
-	}
-	
 	spin_lock_bh(&head->lock);
-	pr_warn("skb_tail_head_lock\n");
 	__skb_queue_tail(head, skb);
 	spin_unlock_bh(&head->lock);
-	pr_warn("skb_tail_head_unlock\n");
 
 	spin_lock_bh(&phy->tx_lock);
 	pr_warn("spin_lock_tx_lock\n");
