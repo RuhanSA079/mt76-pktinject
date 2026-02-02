@@ -332,11 +332,8 @@ mt76_tx(struct mt76_phy *phy, struct ieee80211_sta *sta,
 	struct mt76_wcid *wcid, struct sk_buff *skb)
 {
 	struct ieee80211_tx_info *info = IEEE80211_SKB_CB(skb);
-	//struct ieee80211_hdr *hdr = (void *)skb->data;
-	//struct sk_buff_head *head;
-	struct mt76_dev *dev = phy->dev;
-	struct mt76_queue *q;
-	int qid = skb_get_queue_mapping(skb);
+	struct ieee80211_hdr *hdr = (void *)skb->data;
+	struct sk_buff_head *head;
 
 	if (mt76_testmode_enabled(phy)) {
 		ieee80211_free_txskb(phy->hw, skb);
@@ -346,34 +343,35 @@ mt76_tx(struct mt76_phy *phy, struct ieee80211_sta *sta,
 	if (WARN_ON(skb_get_queue_mapping(skb) >= MT_TXQ_PSD))
 		skb_set_queue_mapping(skb, MT_TXQ_BE);
 
+	if (!wcid){
+		pr_warn("%s: no wcid for skb, dropping\n", __func__);
+    	ieee80211_free_txskb(phy->hw, skb);
+    	return;
+	}
+	
 	if (wcid && !(wcid->tx_info & MT_WCID_TX_INFO_SET))
 		ieee80211_get_tx_rates(info->control.vif, sta, skb,
 				       info->control.rates, 1);
-
+	
 	info->hw_queue |= FIELD_PREP(MT_TX_HW_QUEUE_PHY, phy->band_idx);
 
-	// if ((info->flags & IEEE80211_TX_CTL_TX_OFFCHAN) ||
-	//     ((info->control.flags & IEEE80211_TX_CTRL_DONT_USE_RATE_MASK) &&
-	//      ieee80211_is_probe_req(hdr->frame_control)))
-	// 	head = &wcid->tx_offchannel;
-	// else
-	// 	head = &wcid->tx_pending;
+	if ((info->flags & IEEE80211_TX_CTL_TX_OFFCHAN) ||
+	    ((info->control.flags & IEEE80211_TX_CTRL_DONT_USE_RATE_MASK) &&
+	     ieee80211_is_probe_req(hdr->frame_control)))
+		head = &wcid->tx_offchannel;
+	else
+		head = &wcid->tx_pending;
 
-	// spin_lock_bh(&head->lock);
-	// __skb_queue_tail(head, skb);
-	// spin_unlock_bh(&head->lock);
+	spin_lock_bh(&head->lock);
+	__skb_queue_tail(head, skb);
+	spin_unlock_bh(&head->lock);
 
-	// spin_lock_bh(&phy->tx_lock);
-	// if (list_empty(&wcid->tx_list))
-	// 	list_add_tail(&wcid->tx_list, &phy->tx_list);
-	// spin_unlock_bh(&phy->tx_lock);
-	q = phy->q_tx[qid];
-	spin_lock_bh(&q->lock);
-	__mt76_tx_queue_skb(phy, qid, skb, wcid, sta, NULL);
-	dev->queue_ops->kick(dev, q);
-	spin_unlock_bh(&q->lock);
-	
-	//mt76_worker_schedule(&phy->dev->tx_worker);
+	spin_lock_bh(&phy->tx_lock);
+	if (list_empty(&wcid->tx_list))
+		list_add_tail(&wcid->tx_list, &phy->tx_list);
+	spin_unlock_bh(&phy->tx_lock);
+
+	mt76_worker_schedule(&phy->dev->tx_worker);
 }
 EXPORT_SYMBOL_GPL(mt76_tx);
 
