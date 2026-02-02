@@ -352,7 +352,14 @@ mt76_tx(struct mt76_phy *phy, struct ieee80211_sta *sta,
 		head = &wcid->tx_offchannel;
 	else
 		head = &wcid->tx_pending;
-
+	
+	pr_warn("mt76_tx: skb %p head %p wcid %p phy %p\n", skb, head, wcid, phy);
+	pr_warn("mt76_tx: skb->data=%p skb->len=%u skb->next=%p skb->prev=%p users=%d\n",
+	        skb->data, skb->len, skb->next, skb->prev, atomic_read(&skb->users));
+	pr_warn("mt76_tx: head->next=%p head->prev=%p qlen=%u\n",
+	        READ_ONCE(head->next), READ_ONCE(head->prev), skb_queue_len(head));
+	dump_stack();
+	
 	spin_lock_bh(&head->lock);
 	__skb_queue_tail(head, skb);
 	spin_unlock_bh(&head->lock);
