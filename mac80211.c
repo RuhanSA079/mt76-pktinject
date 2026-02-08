@@ -1700,6 +1700,7 @@ void mt76_wcid_init(struct mt76_wcid *wcid, u8 band_idx)
 	idr_init(&wcid->pktid);
 
 	INIT_LIST_HEAD(&wcid->poll_list);
+	wcid->tx_init = 1;
 }
 EXPORT_SYMBOL_GPL(mt76_wcid_init);
 
