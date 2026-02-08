@@ -430,6 +430,7 @@ struct mt76_wcid {
 	struct list_head poll_list;
 
 	struct mt76_wcid *def_wcid;
+	u8 tx_init;
 };
 
 struct mt76_txq {
