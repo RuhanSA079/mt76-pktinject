@@ -327,6 +327,33 @@ __mt76_tx_queue_skb(struct mt76_phy *phy, int qid, struct sk_buff *skb,
 	return idx;
 }
 
+static inline void mt76_wcid_lazy_init(struct mt76_phy *phy, struct mt76_wcid *wcid)
+{
+    if (READ_ONCE(wcid->tx_init))
+        return;
+	
+    spin_lock_bh(&phy->tx_lock);
+    if (!READ_ONCE(wcid->tx_init)) {
+        /* double-check actual queue pointers to avoid clobbering real data */
+        if ((READ_ONCE(wcid->tx_pending.next) == NULL || READ_ONCE(wcid->tx_pending.prev) == NULL) || (READ_ONCE(wcid->tx_offchannel.next) == NULL || READ_ONCE(wcid->tx_offchannel.prev))) {
+            skb_queue_head_init(&wcid->tx_pending);
+            skb_queue_head_init(&wcid->tx_offchannel);
+            INIT_LIST_HEAD(&wcid->tx_list);
+            INIT_LIST_HEAD(&wcid->list);
+            idr_init(&wcid->pktid);
+            INIT_LIST_HEAD(&wcid->poll_list);
+        }else {
+            /*
+             * If queue pointers are non-NULL AND tx_init==0, that is
+             * suspicious (inconsistent). Log it for debugging.
+             */
+            pr_warn("%s: wcid %p appears to have non-NULL queue pointers but tx_init=0\n", __func__, wcid);
+        }
+        WRITE_ONCE(wcid->tx_init, 1);
+    }
+    spin_unlock_bh(&phy->tx_lock);
+ }
+
 void
 mt76_tx(struct mt76_phy *phy, struct ieee80211_sta *sta,
 	struct mt76_wcid *wcid, struct sk_buff *skb)
@@ -348,32 +375,23 @@ mt76_tx(struct mt76_phy *phy, struct ieee80211_sta *sta,
 	
 	info->hw_queue |= FIELD_PREP(MT_TX_HW_QUEUE_PHY, phy->band_idx);
 
+	mt76_wcid_lazy_init(phy, wcid);
+	
 	if ((info->flags & IEEE80211_TX_CTL_TX_OFFCHAN) || ((info->control.flags & IEEE80211_TX_CTRL_DONT_USE_RATE_MASK) && ieee80211_is_probe_req(hdr->frame_control)))
 		head = &wcid->tx_offchannel;
 	else
 		head = &wcid->tx_pending;
-	
-	pr_warn("mt76_tx: skb %p head %p wcid %p phy %p\n", skb, head, wcid, phy);
-	pr_warn("mt76_tx: skb->data=%p skb->len=%u skb->next=%p skb->prev=%p users=%d\n",
-	        skb->data, skb->len, skb->next, skb->prev, atomic_read(&skb->users));
-	pr_warn("mt76_tx: head->next=%p head->prev=%p qlen=%u\n",
-	        READ_ONCE(head->next), READ_ONCE(head->prev), skb_queue_len(head));
-	dump_stack();
 	
 	spin_lock_bh(&head->lock);
 	__skb_queue_tail(head, skb);
 	spin_unlock_bh(&head->lock);
 
 	spin_lock_bh(&phy->tx_lock);
-	pr_warn("spin_lock_tx_lock\n");
 	if (list_empty(&wcid->tx_list))
 		list_add_tail(&wcid->tx_list, &phy->tx_list);
 	spin_unlock_bh(&phy->tx_lock);
-	pr_warn("spin_lock_tx_unlock\n");
 
-	pr_warn("mt76_worker_scheduling\n");
 	mt76_worker_schedule(&phy->dev->tx_worker);
-	pr_warn("mt76_worker_scheduled\n");
 }
 EXPORT_SYMBOL_GPL(mt76_tx);
 
